@@ -1,0 +1,61 @@
+{
+  "app_title_zh": "金属材料应力比疲劳强度在线预测平台",
+  "subtitle_zh": "正式部署版：直接调用你提供的原始 FNN 模型、scaler 文件和训练数据。",
+  "feature_names": [
+    "E",
+    "σb",
+    "R",
+    "σ-1"
+  ],
+  "feature_labels_zh": {
+    "E": "弹性模量 E (GPa)",
+    "σb": "抗拉强度 σb (MPa)",
+    "R": "应力比 R",
+    "σ-1": "R = -1 时疲劳强度 σ-1 (MPa)"
+  },
+  "feature_ranges": {
+    "E": {
+      "train_min": 45.0,
+      "train_max": 220.0,
+      "default": 160.0,
+      "step": 0.1,
+      "ui_min": 10.0,
+      "ui_max": 255.0
+    },
+    "σb": {
+      "train_min": 215.0,
+      "train_max": 1984.0,
+      "default": 940.0,
+      "step": 0.1,
+      "ui_min": -138.8,
+      "ui_max": 2337.8
+    },
+    "R": {
+      "train_min": -1.0,
+      "train_max": 0.9000825816470455,
+      "default": 0.09015330931498786,
+      "step": 0.01,
+      "ui_min": -1.3800165163294091,
+      "ui_max": 1.2800990979764546
+    },
+    "σ-1": {
+      "train_min": 58.0,
+      "train_max": 890.0,
+      "default": 421.0,
+      "step": 0.1,
+      "ui_min": -108.4,
+      "ui_max": 1056.4
+    }
+  },
+  "target_label_zh": "预测疲劳强度 σa (MPa)",
+  "model_file": "model.keras",
+  "scaler_x_file": "scaler_X.pkl",
+  "scaler_y_file": "scaler_y.pkl",
+  "training_dataset_file": "training_dataset.xlsx",
+  "notes": [
+    "该版本直接读取你上传的 model.keras 与 scaler 文件。",
+    "输入顺序固定为 E、σb、R、σ-1。",
+    "支持单点预测与批量预测。",
+    "若输入超出训练范围，页面会给出外推提示。"
+  ]
+}
