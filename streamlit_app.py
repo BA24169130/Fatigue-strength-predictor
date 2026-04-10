@@ -45,12 +45,73 @@ def df_to_xlsx_bytes(df):
 
 def main():
     model, scaler_x, scaler_y, train_df = load_assets()
-    st.markdown("""
-    <style>
-    .main-title {font-size: 2rem; font-weight: 700; color: #0b3d91; margin-bottom: 0.2rem;}
-    .sub-title {font-size: 1rem; color: #444444; margin-bottom: 1rem;}
-    </style>
-    """, unsafe_allow_html=True)
+st.markdown("""
+<style>
+/* 整体基础字号 */
+html, body, [class*="css"]  {
+    font-size: 18px;
+}
+
+/* 主标题 */
+.main-title {
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: #0b3d91;
+    margin-bottom: 0.3rem;
+}
+
+/* 副标题 */
+.sub-title {
+    font-size: 1.25rem;
+    color: #444444;
+    margin-bottom: 1.2rem;
+}
+
+/* 侧边栏文字 */
+[data-testid="stSidebar"] * {
+    font-size: 18px !important;
+}
+
+/* 标签页 */
+button[data-baseweb="tab"] {
+    font-size: 18px !important;
+    font-weight: 600 !important;
+}
+
+/* 小标题，比如“在线单点预测” */
+h2, h3 {
+    font-size: 1.8rem !important;
+}
+
+/* 输入框标签 */
+label, .stNumberInput label, .stTextInput label {
+    font-size: 18px !important;
+    font-weight: 600 !important;
+}
+
+/* 输入框里的数字 */
+div[data-baseweb="input"] input {
+    font-size: 20px !important;
+}
+
+/* 按钮文字 */
+.stButton > button {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    height: 3.2rem !important;
+}
+
+/* 成功/提示信息 */
+[data-testid="stAlert"] {
+    font-size: 18px !important;
+}
+
+/* 表格文字 */
+[data-testid="stDataFrame"] div {
+    font-size: 17px !important;
+}
+</style>
+""", unsafe_allow_html=True)
     st.markdown(f'<div class="main-title">{CONFIG["app_title_zh"]}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="sub-title">{CONFIG["subtitle_zh"]}</div>', unsafe_allow_html=True)
 
