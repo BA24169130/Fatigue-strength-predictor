@@ -55,7 +55,7 @@ def main():
     <style>
     /* 整体基础字号 */
     html, body, [class*="css"] {
-        font-size: 18px;
+        font-size: 22px;
     }
 
     /* 主标题 */
