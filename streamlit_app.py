@@ -429,7 +429,7 @@ def render_preview_section():
     st.markdown("""
     <div class="preview-card">
         <h3>平台预览</h3>
-        <p>本平台支持金属材料应力比疲劳强度在线预测。</p>
+        <p>本平台支持金属材料应力比R[-1, 1]疲劳强度在线预测。</p>
         <p>当前页面为公开预览区域，所有人都可以查看平台介绍和使用说明。</p>
     </div>
     """, unsafe_allow_html=True)
@@ -438,7 +438,7 @@ def render_preview_section():
     <div class="preview-card">
         <h3>使用方式</h3>
         <p><b>public</b>：免费公开版本，所有访问者都能直接使用，目前暂未开通。</p>
-        <p><b>authorized</b>：仅授权用户可使用。请联系管理员（邮箱：qswang24b@imr.ac.cn）申请授权。</p>
+        <p><b>authorized</b>：仅授权用户可使用，如需授权，请联系管理员（邮箱：qswang24b@imr.ac.cn）申请授权。</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -463,7 +463,7 @@ def render_access_prompt(user_email: str = ""):
 
     # 未登录
     if not safe_is_logged_in():
-        st.warning("当前为公开预览模式。请先登录；若你的账户已被授权，则登录后可直接使用。")
+        st.warning("当前为公开预览模式，请先登录；若您的账户已被授权，登录后可直接使用。")
 
         if st.button("登录并验证身份", use_container_width=True):
             st.login()
