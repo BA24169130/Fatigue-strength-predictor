@@ -437,8 +437,8 @@ def render_preview_section():
     st.markdown("""
     <div class="preview-card">
         <h3>使用方式</h3>
-        <p><b>public</b>：免费公开版本，所有访问者都能直接使用。</p>
-        <p><b>authorized</b>：仅授权用户可使用。管理员可手动把某些邮箱加入授权名单。</p>
+        <p><b>public</b>：免费公开版本，所有访问者都能直接使用，目前暂未开通。</p>
+        <p><b>authorized</b>：仅授权用户可使用。请联系管理员（邮箱：qswang24b@imr.ac.cn）申请授权。</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -453,7 +453,7 @@ def render_access_prompt(user_email: str = ""):
     不再显示任何“购买使用权”相关按钮。
     """
     st.markdown("---")
-    st.subheader("正式使用入口")
+    st.subheader("登录入口")
 
     # 没有配置 OIDC
     if not auth_is_configured():
@@ -507,12 +507,10 @@ authorized_users = ["user1@example.com", "user2@example.com"]
 
 
 # =========================
-# 13. 正式预测平台（尽量保留你原有布局）
+# 13. 正式预测平台
 # =========================
 def render_predictor_app():
-    """
-    这里尽量保留你原本的布局与内容，只把 main() 里的平台主体拆出来。
-    """
+  
     model, scaler_x, scaler_y, train_df = load_assets()
 
     # 左侧侧边栏
