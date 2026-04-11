@@ -1,6 +1,7 @@
 import io
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 import joblib
 import numpy as np
@@ -163,28 +164,36 @@ def is_authorized_user(user_email: str) -> bool:
     return user_email in admin_users or user_email in authorized_users
 
 
-def perform_logout():
+def get_app_home_url() -> str:
     """
-    统一退出登录入口。
-
-    作用：
-    1) 清理浏览器地址里可能残留的旧查询参数，避免把旧参数带到退出回跳流程
-    2) 再执行 st.logout()
-
-    说明：
-    真正的退出回跳是否成功，还取决于 Auth0 的 Allowed Logout URLs 配置。
+    从 redirect_uri 推导出应用主页地址。
+    例如：
+    https://xxx.streamlit.app/oauth2callback
+    -> https://xxx.streamlit.app
     """
-    try:
-        # 尽量清理旧版本可能留下的参数，避免影响 Auth0 logout returnTo
-        for key in list(st.query_params.keys()):
-            try:
-                del st.query_params[key]
-            except Exception:
-                pass
-    except Exception:
-        pass
+    redirect_uri = str(get_secret_value("auth", "redirect_uri", "")).strip()
+    if redirect_uri.endswith("/oauth2callback"):
+        return redirect_uri[:-15]
+    return redirect_uri.rstrip("/")
 
-    st.logout()
+
+def build_auth0_logout_url() -> str:
+    """
+    构造 Auth0 的 logout URL。
+    这是替代 st.logout() 的最小改动方案。
+    """
+    client_id = str(get_secret_value("auth", "client_id", "")).strip()
+    metadata_url = str(get_secret_value("auth", "server_metadata_url", "")).strip()
+    app_home = get_app_home_url()
+
+    if not client_id or not metadata_url or not app_home:
+        return app_home or "#"
+
+    auth0_base = metadata_url.replace("/.well-known/openid-configuration", "").rstrip("/")
+    encoded_return_to = quote(app_home, safe="")
+    encoded_client_id = quote(client_id, safe="")
+
+    return f"{auth0_base}/v2/logout?client_id={encoded_client_id}&returnTo={encoded_return_to}"
 
 
 # =========================
@@ -489,7 +498,7 @@ def render_access_prompt(user_email: str = ""):
     if not safe_is_logged_in():
         st.warning("当前为公开预览模式，请先登录；若您的账户已被授权，登录后可直接使用。")
 
-        if st.button("登录并验证身份", use_container_width=True, key="login_entry_button"):
+        if st.button("登录并验证身份", use_container_width=True):
             st.login()
         return
 
@@ -497,8 +506,11 @@ def render_access_prompt(user_email: str = ""):
     st.warning(f"当前登录账号：{user_email}。你已登录，但尚未获得使用权限。")
     st.info("如需开通权限，请联系管理员将你的邮箱加入 authorized_users。")
 
-    if st.button("退出登录", use_container_width=True, key="logout_unauthorized_button"):
-        perform_logout()
+    logout_url = build_auth0_logout_url()
+    if logout_url and logout_url != "#":
+        st.link_button("退出登录", logout_url, use_container_width=True)
+    else:
+        st.warning("未能构造退出登录地址，请检查 Auth0 配置。")
 
 
 # =========================
@@ -720,8 +732,11 @@ def main():
 
             col1, col2 = st.columns([1, 1])
             with col1:
-                if st.button("退出登录", key="logout_authorized_button"):
-                    perform_logout()
+                logout_url = build_auth0_logout_url()
+                if logout_url and logout_url != "#":
+                    st.link_button("退出登录", logout_url, use_container_width=True)
+                else:
+                    st.warning("未能构造退出登录地址，请检查 Auth0 配置。")
             with col2:
                 st.empty()
 
