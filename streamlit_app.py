@@ -117,10 +117,8 @@ def main():
     # =========================
     # 7.1 页面样式（CSS）
     # =========================
-    # 这里是本次重点修改部分：
-    # 1) 把标签页字体调大
-    # 2) 把输入框、按钮、侧边栏、提示框字体调大
-    # 3) 给 st.table 的表格字体单独放大
+    # 本次只新增了 prediction-result 这一块样式，
+    # 其他部分都保持你当前版本不变
     st.markdown("""
     <style>
     /* ===== 页面整体基础字号 ===== */
@@ -218,6 +216,22 @@ def main():
     /* ===== 成功、警告、提示框 ===== */
     [data-testid="stAlert"] {
         font-size: 19px !important;
+    }
+
+    /* =========================
+       这里是预测结果文字的专属样式
+       只影响“预测疲劳强度 ...”这一行
+       ========================= */
+    .prediction-result {
+        background-color: #dff0df;
+        color: #1e7a46;
+        border-radius: 0.5rem;
+        padding: 16px 18px;
+        margin-top: 0.8rem;
+        margin-bottom: 0.8rem;
+        font-size: 30px;      /* 结果字体放大 */
+        font-weight: 800;     /* 结果加粗 */
+        line-height: 1.4;
     }
 
     /* ===== st.table 表格字体 ===== */
@@ -326,8 +340,15 @@ def main():
             # 调用预测函数
             pred = float(predict_values(model, scaler_x, scaler_y, X)[0])
 
-            # 显示预测结果
-            st.success(f"✅ {CONFIG['target_label_zh']} = {pred:.4f} MPa")
+            # 用自定义 prediction-result 样式替换原来的 st.success
+            st.markdown(
+                f"""
+                <div class="prediction-result">
+                    ✅ {CONFIG['target_label_zh']} = {pred:.4f} MPa
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             # 检查是否超出训练范围
             warnings = get_range_warnings(values)
