@@ -163,6 +163,30 @@ def is_authorized_user(user_email: str) -> bool:
     return user_email in admin_users or user_email in authorized_users
 
 
+def perform_logout():
+    """
+    统一退出登录入口。
+
+    作用：
+    1) 清理浏览器地址里可能残留的旧查询参数，避免把旧参数带到退出回跳流程
+    2) 再执行 st.logout()
+
+    说明：
+    真正的退出回跳是否成功，还取决于 Auth0 的 Allowed Logout URLs 配置。
+    """
+    try:
+        # 尽量清理旧版本可能留下的参数，避免影响 Auth0 logout returnTo
+        for key in list(st.query_params.keys()):
+            try:
+                del st.query_params[key]
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    st.logout()
+
+
 # =========================
 # 4. 加载模型、scaler 和训练数据
 # =========================
@@ -465,7 +489,7 @@ def render_access_prompt(user_email: str = ""):
     if not safe_is_logged_in():
         st.warning("当前为公开预览模式，请先登录；若您的账户已被授权，登录后可直接使用。")
 
-        if st.button("登录并验证身份", use_container_width=True):
+        if st.button("登录并验证身份", use_container_width=True, key="login_entry_button"):
             st.login()
         return
 
@@ -473,8 +497,8 @@ def render_access_prompt(user_email: str = ""):
     st.warning(f"当前登录账号：{user_email}。你已登录，但尚未获得使用权限。")
     st.info("如需开通权限，请联系管理员将你的邮箱加入 authorized_users。")
 
-    if st.button("退出登录", use_container_width=True):
-        st.logout()
+    if st.button("退出登录", use_container_width=True, key="logout_unauthorized_button"):
+        perform_logout()
 
 
 # =========================
@@ -510,7 +534,6 @@ authorized_users = ["user1@example.com", "user2@example.com"]
 # 13. 正式预测平台
 # =========================
 def render_predictor_app():
-  
     model, scaler_x, scaler_y, train_df = load_assets()
 
     # 左侧侧边栏
@@ -697,8 +720,8 @@ def main():
 
             col1, col2 = st.columns([1, 1])
             with col1:
-                if st.button("退出登录"):
-                    st.logout()
+                if st.button("退出登录", key="logout_authorized_button"):
+                    perform_logout()
             with col2:
                 st.empty()
 
