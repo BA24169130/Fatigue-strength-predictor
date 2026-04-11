@@ -1,6 +1,6 @@
 {
   "app_title_zh": "金属材料应力比疲劳强度在线预测平台",
-  "subtitle_zh": "正式部署版：直接调用你提供的原始 FNN 模型、scaler 文件和训练数据。",
+  "subtitle_zh": "开发者：中科院金属研究所疲劳与断裂研究部",
   "feature_names": [
     "E",
     "σb",
