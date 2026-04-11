@@ -76,7 +76,7 @@ def main():
     .sub-title {
         font-size: 1.25rem;
         color: #444444;
-        margin-bottom: 1rem;
+        margin-bottom: 1.2rem;
         text-align: center;
     }
 
