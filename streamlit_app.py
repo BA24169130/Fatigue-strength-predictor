@@ -82,7 +82,7 @@ def main():
 
     /* 侧边栏文字 */
     [data-testid="stSidebar"] * {
-        font-size: 18px !important;
+        font-size: 20px !important;
     }
 
     /* 标签页 */
@@ -98,25 +98,25 @@ def main():
 
     /* 输入框标签 */
     label, .stNumberInput label, .stTextInput label {
-        font-size: 18px !important;
+        font-size: 20px !important;
         font-weight: 600 !important;
     }
 
     /* 输入框里的数字 */
     div[data-baseweb="input"] input {
-        font-size: 20px !important;
+        font-size: 22px !important;
     }
 
     /* 按钮文字 */
     .stButton > button {
-        font-size: 20px !important;
+        font-size: 24px !important;
         font-weight: 700 !important;
         height: 3.2rem !important;
     }
 
     /* 成功/提示信息 */
     [data-testid="stAlert"] {
-        font-size: 18px !important;
+        font-size: 20px !important;
     }
 
     /* 表格文字 */
