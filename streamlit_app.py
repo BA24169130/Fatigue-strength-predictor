@@ -21,7 +21,8 @@ APP_DIR = Path(__file__).resolve().parent
 CONFIG = json.loads((APP_DIR / "model_config.json").read_text(encoding="utf-8"))
 
 # SQLite 数据库文件
-VISITOR_DB_FILE = APP_DIR / "visitor_counter.db"
+# 放在 /tmp 下，在 Streamlit Cloud 上更稳
+VISITOR_DB_FILE = Path("/tmp") / "visitor_counter.db"
 
 
 # =========================
@@ -185,18 +186,40 @@ def get_db_connection():
     """
     创建 SQLite 连接。
     每次操作都单独打开一个连接，避免跨线程共用连接。
+    增加 timeout，提高并发时的稳定性。
     """
-    conn = sqlite3.connect(VISITOR_DB_FILE)
+    conn = sqlite3.connect(VISITOR_DB_FILE, timeout=10)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     return conn
 
 
+def rebuild_visits_table(conn):
+    """
+    当旧表结构不兼容时，重建 visits 表。
+    """
+    conn.execute("DROP TABLE IF EXISTS visits")
+    conn.execute(
+        """
+        CREATE TABLE visits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_key TEXT NOT NULL UNIQUE,
+            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+
+
 def init_visitor_db():
     """
     初始化访问统计数据库。
-    visits 表里每条记录代表一次有效进入。
-    visit_key 设置唯一约束，用来防止同一页面刷新重复计数。
+
+    这里会做两件事：
+    1) 若 visits 表不存在，则新建
+    2) 若 visits 表存在但结构与当前代码不一致，则自动重建
+
+    这样可以避免你前面多次改版后旧表结构残留导致的 sqlite3.OperationalError。
     """
     with get_db_lock():
         conn = get_db_connection()
@@ -205,12 +228,21 @@ def init_visitor_db():
                 """
                 CREATE TABLE IF NOT EXISTS visits (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    visit_key TEXT NOT NULL UNIQUE,
+                    session_key TEXT NOT NULL UNIQUE,
                     first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
             )
             conn.commit()
+
+            # 检查当前表结构
+            cur = conn.execute("PRAGMA table_info(visits)")
+            columns = [row[1] for row in cur.fetchall()]
+
+            # 如果旧表没有 session_key，说明结构不兼容，直接重建
+            if "session_key" not in columns:
+                rebuild_visits_table(conn)
+
         finally:
             conn.close()
 
@@ -252,7 +284,7 @@ def register_visit_once_per_entry() -> int:
         conn = get_db_connection()
         try:
             conn.execute(
-                "INSERT OR IGNORE INTO visits (visit_key) VALUES (?)",
+                "INSERT OR IGNORE INTO visits (session_key) VALUES (?)",
                 (visit_key,)
             )
             conn.commit()
