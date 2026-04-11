@@ -192,7 +192,7 @@ def main():
         font-weight: 700 !important;
     }
 
-    /* ===== 小标题，比如“在线单点预测” ===== */
+    /* ===== 小标题，比如“单点预测” ===== */
     h2, h3 {
         font-size: 1.9rem !important;
     }
@@ -295,7 +295,7 @@ def main():
     # Tab 1：单点预测
     # =========================================================
     with tab1:
-        st.subheader("在线单点预测")
+        st.subheader("单点预测")
 
         # 两列布局
         col1, col2 = st.columns(2)
