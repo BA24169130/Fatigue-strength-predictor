@@ -80,7 +80,7 @@ def main():
 
     /* 标签页 */
     button[data-baseweb="tab"] {
-        font-size: 18px !important;
+        font-size: 20px !important;
         font-weight: 600 !important;
     }
 
