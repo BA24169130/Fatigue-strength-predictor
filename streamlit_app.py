@@ -364,7 +364,7 @@ def main():
             # 这里改成 st.table，更适合展示少量汇总信息，而且字体更容易放大
             result_df = pd.DataFrame({
                 "Feature": CONFIG["feature_names"],
-                "Chinese": [CONFIG["feature_labels_zh"][f] for f in CONFIG["feature_names"]],
+                "Meaning": [CONFIG["feature_labels_zh"][f] for f in CONFIG["feature_names"]],
                 "Value": [values[f] for f in CONFIG["feature_names"]],
             })
             st.table(result_df)
