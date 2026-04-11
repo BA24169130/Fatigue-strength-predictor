@@ -98,7 +98,7 @@ def main():
 
     /* 输入框标签 */
     label, .stNumberInput label, .stTextInput label {
-        font-size: 20px !important;
+        font-size: 24px !important;
         font-weight: 600 !important;
     }
 
