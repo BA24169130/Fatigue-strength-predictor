@@ -58,19 +58,26 @@ def main():
         font-size: 18px;
     }
 
-    /* 主标题 */
+    /* 主要内容区域：顶部留白（调整此值可改变顶部空白大小） */
+    .block-container {
+        padding-top: 2rem !important;
+    }
+
+    /* 主标题：居中 + 样式 */
     .main-title {
         font-size: 2.8rem;
         font-weight: 700;
         color: #0b3d91;
         margin-bottom: 0.3rem;
+        text-align: center;
     }
 
-    /* 副标题 */
+    /* 副标题：居中 + 样式 */
     .sub-title {
         font-size: 1.25rem;
         color: #444444;
         margin-bottom: 1.2rem;
+        text-align: center;
     }
 
     /* 侧边栏文字 */
