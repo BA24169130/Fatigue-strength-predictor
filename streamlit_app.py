@@ -10,7 +10,7 @@ from tensorflow import keras
 
 
 # =========================
-# 1) 基本路径与配置
+# 1) 基本路径与配置文件
 # =========================
 APP_DIR = Path(__file__).resolve().parent
 CONFIG = json.loads((APP_DIR / "model_config.json").read_text(encoding="utf-8"))
@@ -27,52 +27,140 @@ st.set_page_config(
 
 
 # =========================
-# 3) 工具函数：读取 secrets 里的邮箱名单
+# 3) 通用工具函数
 # =========================
-def _read_secret_email_list(section: str, key: str) -> set[str]:
+def get_secret_section(section_name: str) -> dict:
     """
-    从 st.secrets 里读取邮箱列表，并统一转成小写集合。
-    如果没有配置，就返回空集合。
+    安全读取 st.secrets 的某个 section。
+    若不存在，则返回空字典，避免直接报错。
     """
     try:
-        values = st.secrets[section][key]
+        return dict(st.secrets[section_name])
     except Exception:
-        values = []
+        return {}
 
+
+def get_secret_value(section_name: str, key: str, default=None):
+    """
+    安全读取 st.secrets[section_name][key]。
+    若不存在，则返回 default。
+    """
+    try:
+        return st.secrets[section_name][key]
+    except Exception:
+        return default
+
+
+def normalize_email_set(values) -> set[str]:
+    """
+    把邮箱列表转成统一的小写集合，方便后续做权限判断。
+    """
     if values is None:
-        values = []
+        return set()
+    return {
+        str(v).strip().lower()
+        for v in values
+        if str(v).strip()
+    }
 
-    return {str(v).strip().lower() for v in values if str(v).strip()}
+
+def auth_is_configured() -> bool:
+    """
+    判断 Streamlit 的认证是否已配置完成。
+
+    对于 OIDC，至少要有：
+    - [auth]
+    - redirect_uri
+    - cookie_secret
+
+    如果是单个默认 provider，还需要：
+    - client_id
+    - client_secret
+    - server_metadata_url
+
+    这里我们做“最小必要判断”。
+    """
+    auth_section = get_secret_section("auth")
+    if not auth_section:
+        return False
+
+    required_shared_keys = ["redirect_uri", "cookie_secret"]
+    for k in required_shared_keys:
+        if not auth_section.get(k):
+            return False
+
+    # 单 provider 默认写法
+    default_provider_keys = ["client_id", "client_secret", "server_metadata_url"]
+    if all(auth_section.get(k) for k in default_provider_keys):
+        return True
+
+    # 多 provider 命名写法时，这里先简单认为 auth 已配置，
+    # 具体 provider 名称由 st.login("provider_name") 使用
+    # 第一版我们直接默认用 st.login()，因此建议先用单 provider。
+    return False
+
+
+def safe_is_logged_in() -> bool:
+    """
+    安全判断当前用户是否已登录。
+
+    为什么不用直接 st.user.is_logged_in？
+    因为如果认证还没正确配置，或者当前环境不支持，
+    直接访问可能报 AttributeError。
+    """
+    if not auth_is_configured():
+        return False
+
+    try:
+        return bool(st.user.is_logged_in)
+    except Exception:
+        return False
 
 
 def get_current_user_email() -> str:
     """
-    读取当前登录用户邮箱。
-    st.user 是 dict-like 对象，优先尝试 get('email')。
+    安全读取当前登录用户邮箱。
+    若未登录或无法获取，则返回空字符串。
     """
-    if not st.user.is_logged_in:
+    if not safe_is_logged_in():
         return ""
 
-    email = ""
     try:
         email = st.user.get("email", "")
     except Exception:
-        email = getattr(st.user, "email", "")
+        try:
+            email = getattr(st.user, "email", "")
+        except Exception:
+            email = ""
 
     return str(email).strip().lower()
 
 
+def get_access_lists():
+    """
+    从 secrets 中读取三类用户名单：
+    - admin_users：管理员
+    - paid_users：付费用户
+    - free_users：免费授权用户
+    """
+    access_section = get_secret_section("access_control")
+
+    admin_users = normalize_email_set(access_section.get("admin_users", []))
+    paid_users = normalize_email_set(access_section.get("paid_users", []))
+    free_users = normalize_email_set(access_section.get("free_users", []))
+
+    return admin_users, paid_users, free_users
+
+
 def get_access_level(user_email: str) -> str:
     """
-    判断当前用户权限等级：
-    - admin：管理员
-    - paid：已付费用户
-    - free：免费授权用户
-    - none：无权限
+    判断用户权限级别：
+    - admin
+    - paid
+    - free
+    - none
     """
-    admin_users = _read_secret_email_list("access_control", "admin_users")
-    paid_users = _read_secret_email_list("access_control", "paid_users")
-    free_users = _read_secret_email_list("access_control", "free_users")
+    admin_users, paid_users, free_users = get_access_lists()
 
     if user_email in admin_users:
         return "admin"
@@ -85,21 +173,28 @@ def get_access_level(user_email: str) -> str:
 
 def get_purchase_url() -> str:
     """
-    读取购买链接。
+    读取购买链接（例如 Stripe Payment Link）。
     """
-    try:
-        return st.secrets["payments"]["purchase_url"]
-    except Exception:
-        return ""
+    return str(get_secret_value("payments", "purchase_url", "")).strip()
+
+
+def provider_name() -> str | None:
+    """
+    第一版默认使用 unnamed/default provider。
+    如果你后面改成命名 provider，可以在这里返回 provider 名称。
+    """
+    # 例如：return "google"
+    return None
 
 
 # =========================
-# 4) 加载模型、scaler、训练数据
-#    注意：只有在已授权时才加载
-#    这样未授权用户只能预览，不消耗模型推理资源
+# 4) 加载模型与训练资源
 # =========================
 @st.cache_resource(show_spinner=False)
 def load_assets():
+    """
+    加载模型、输入输出 scaler 和训练数据。
+    """
     model = keras.models.load_model(APP_DIR / CONFIG["model_file"])
     scaler_x = joblib.load(APP_DIR / CONFIG["scaler_x_file"])
     scaler_y = joblib.load(APP_DIR / CONFIG["scaler_y_file"])
@@ -108,6 +203,12 @@ def load_assets():
 
 
 def predict_values(model, scaler_x, scaler_y, X_raw):
+    """
+    输入原始尺度的 X_raw：
+    1) scaler_x 标准化
+    2) 模型预测
+    3) scaler_y 反标准化
+    """
     X_scaled = scaler_x.transform(X_raw)
     y_scaled = model.predict(X_scaled, verbose=0)
     y = scaler_y.inverse_transform(np.asarray(y_scaled).reshape(-1, 1)).ravel()
@@ -115,6 +216,9 @@ def predict_values(model, scaler_x, scaler_y, X_raw):
 
 
 def get_range_warnings(values):
+    """
+    检查输入值是否超出训练范围。
+    """
     warnings = []
     for feat in CONFIG["feature_names"]:
         low = CONFIG["feature_ranges"][feat]["train_min"]
@@ -126,6 +230,9 @@ def get_range_warnings(values):
 
 
 def df_to_xlsx_bytes(df):
+    """
+    将 DataFrame 导出为 Excel 二进制流，用于下载。
+    """
     bio = io.BytesIO()
     with pd.ExcelWriter(bio, engine="openpyxl") as writer:
         df.to_excel(writer, index=False, sheet_name="predictions")
@@ -155,9 +262,9 @@ def render_global_style():
     }
 
     .sub-title {
-        font-size: 1.2rem;
+        font-size: 1.25rem;
         color: #444444;
-        margin-bottom: 1.0rem;
+        margin-bottom: 1.2rem;
         text-align: center;
     }
 
@@ -166,8 +273,19 @@ def render_global_style():
     }
 
     button[data-baseweb="tab"] {
-        font-size: 28px !important;
+        padding: 10px 18px !important;
+        min-height: 48px !important;
+    }
+
+    button[data-baseweb="tab"] p,
+    button[data-baseweb="tab"] span,
+    button[data-baseweb="tab"] div {
+        font-size: 22px !important;
         font-weight: 700 !important;
+    }
+
+    h2, h3 {
+        font-size: 1.9rem !important;
     }
 
     label, .stNumberInput label, .stTextInput label {
@@ -189,15 +307,6 @@ def render_global_style():
         font-size: 19px !important;
     }
 
-    .preview-card {
-        border: 1px solid #d9e3f0;
-        border-radius: 14px;
-        padding: 18px 20px;
-        margin-top: 12px;
-        margin-bottom: 12px;
-        background: #f8fbff;
-    }
-
     .prediction-result {
         background-color: #dff0df;
         color: #1e7a46;
@@ -209,13 +318,46 @@ def render_global_style():
         font-weight: 800;
         line-height: 1.4;
     }
+
+    .preview-card {
+        border: 1px solid #d9e3f0;
+        border-radius: 14px;
+        padding: 18px 20px;
+        margin-top: 12px;
+        margin-bottom: 12px;
+        background: #f8fbff;
+    }
+
+    [data-testid="stTable"] table {
+        font-size: 19px !important;
+        width: 100% !important;
+    }
+
+    [data-testid="stTable"] thead tr th {
+        font-size: 20px !important;
+        font-weight: 700 !important;
+        background-color: #f0f2f6 !important;
+    }
+
+    [data-testid="stTable"] tbody tr td {
+        font-size: 19px !important;
+    }
+
+    [data-testid="stDataFrame"] thead th {
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        background-color: #f0f2f6 !important;
+    }
+
+    [data-testid="stDataFrame"] tbody td {
+        font-size: 17px !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
 
 # =========================
-# 6) 公共预览区
-#    所有人都能看
+# 6) 公开预览页
 # =========================
 def render_preview():
     st.markdown(
@@ -231,9 +373,9 @@ def render_preview():
     st.markdown("""
     <div class="preview-card">
         <h3>平台简介</h3>
-        <p>本平台用于金属材料应力比疲劳强度在线预测。用户输入特征后，可获得模型预测结果。</p>
+        <p>本平台用于金属材料应力比疲劳强度在线预测。</p>
         <p><b>公开可见：</b>平台介绍、输入说明、适用范围、使用流程。</p>
-        <p><b>受限功能：</b>单点预测、批量预测、正式结果下载。</p>
+        <p><b>正式功能：</b>单点预测、批量预测、结果下载。</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -249,28 +391,44 @@ def render_preview():
 
     st.markdown("""
     <div class="preview-card">
-        <h3>如何获得使用权限</h3>
+        <h3>使用方式</h3>
         <p>步骤 1：登录平台</p>
         <p>步骤 2：购买使用权</p>
         <p>步骤 3：管理员开通后即可使用</p>
-        <p>说明：第一版采用手动白名单方式，付款成功后由管理员将邮箱加入授权名单。</p>
+        <p>第一版采用手动白名单授权。</p>
     </div>
     """, unsafe_allow_html=True)
 
 
 # =========================
-# 7) 未登录或未授权时的提示区
+# 7) 未登录 / 未授权时的提示区
 # =========================
 def render_paywall(user_email: str, access_level: str):
     purchase_url = get_purchase_url()
 
-    if not st.user.is_logged_in:
+    st.markdown("---")
+    st.subheader("正式使用权限")
+
+    # 认证未配置
+    if not auth_is_configured():
+        st.warning("当前平台还未完成登录认证配置，因此暂时处于仅预览模式。")
+        st.info("下一步请先配置 Streamlit OIDC 认证，再启用付费访问控制。")
+        return
+
+    # 未登录
+    if not safe_is_logged_in():
         st.warning("当前为公开预览模式。请先登录，再购买或申请授权后使用预测功能。")
-        c1, c2 = st.columns(2)
-        with c1:
+
+        col1, col2 = st.columns(2)
+        with col1:
             if st.button("使用 Google 登录", use_container_width=True):
-                st.login()
-        with c2:
+                p = provider_name()
+                if p:
+                    st.login(p)
+                else:
+                    st.login()
+
+        with col2:
             if purchase_url:
                 st.link_button("购买使用权", purchase_url, use_container_width=True)
             else:
@@ -279,30 +437,30 @@ def render_paywall(user_email: str, access_level: str):
 
     # 已登录但未授权
     st.warning(f"当前登录账号：{user_email}。你已登录，但尚未获得使用权限。")
-    c1, c2 = st.columns(2)
-    with c1:
+
+    col1, col2 = st.columns(2)
+    with col1:
         if purchase_url:
             st.link_button("立即购买", purchase_url, use_container_width=True)
         else:
             st.button("立即购买（请先配置 purchase_url）", disabled=True, use_container_width=True)
-    with c2:
+
+    with col2:
         if st.button("退出登录", use_container_width=True):
             st.logout()
 
-    st.info("管理员说明：付款成功后，请将该用户邮箱加入 paid_users；若你要免费开通，则加入 free_users。")
+    st.info("管理员说明：付款成功后，请将该邮箱加入 paid_users；若你要免费赠送权限，则加入 free_users。")
 
 
 # =========================
-# 8) 管理员提示区
-#    第一版不做网页内持久化写入
-#    而是通过 secrets 手动添加最稳
+# 8) 管理员说明区
 # =========================
 def render_admin_panel():
     st.markdown("---")
     st.subheader("管理员说明")
 
-    st.write("当前第一版采用手动白名单授权。")
-    st.write("你可以通过 Streamlit Community Cloud 的 App Settings -> Secrets，维护以下三个名单：")
+    st.write("第一版采用手动白名单授权。")
+    st.write("你可以在 Streamlit Community Cloud 的 Secrets 中维护：")
     st.code(
         """
 [access_control]
@@ -313,16 +471,15 @@ free_users = ["免费授权用户@example.com"]
     )
 
     st.write("规则如下：")
-    st.write("- 加到 paid_users：表示已购买，可使用")
-    st.write("- 加到 free_users：表示免费授权，可直接使用")
-    st.write("- 加到 admin_users：表示管理员，始终可使用")
+    st.write("- `admin_users`：管理员，始终可用")
+    st.write("- `paid_users`：已购买用户")
+    st.write("- `free_users`：你主动赠送权限的免费用户")
 
-    st.info("也就是说，你要主动赠送某个未购买账户免费权限时，只要把他的邮箱加入 free_users 即可。")
+    st.success("也就是说，你要给没买过的人免费权限时，只要把他的邮箱加入 free_users。")
 
 
 # =========================
-# 9) 这里放你原来的预测平台
-#    只有已授权用户才会进入
+# 9) 正式预测区
 # =========================
 def render_predictor_app():
     model, scaler_x, scaler_y, train_df = load_assets()
@@ -447,35 +604,39 @@ def render_predictor_app():
         })
         st.table(range_df)
 
-        st.markdown("### 📌 使用建议")
-        st.write("1. 尽量保证输入值位于训练数据范围内。")
-        st.write("2. 若输入超出训练范围，结果只能作为参考。")
-        st.write("3. 批量预测时请保持列名完全一致。")
-        st.write("4. 当前版本直接调用你上传的原始模型文件。")
-
 
 # =========================
-# 10) 主入口逻辑
+# 10) 主入口
 # =========================
 def main():
     render_global_style()
     render_preview()
 
-    # 未登录：只给预览
-    if not st.user.is_logged_in:
+    # 认证未配置时：安全退回到预览模式，避免直接报错
+    if not auth_is_configured():
         render_paywall(user_email="", access_level="none")
         return
 
-    # 已登录：继续判断授权
+    # 未登录：只显示预览与登录/购买按钮
+    if not safe_is_logged_in():
+        render_paywall(user_email="", access_level="none")
+        return
+
+    # 已登录：判断权限
     user_email = get_current_user_email()
     access_level = get_access_level(user_email)
 
-    # 管理员、已付费、免费授权 都能使用
+    # 管理员、付费用户、免费授权用户：允许进入正式预测
     if access_level in {"admin", "paid", "free"}:
         st.markdown("---")
         st.success(f"当前登录账号：{user_email}；权限：{access_level}")
-        if st.button("退出登录"):
-            st.logout()
+
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            if st.button("退出登录"):
+                st.logout()
+        with col2:
+            st.empty()
 
         if access_level == "admin":
             render_admin_panel()
@@ -483,7 +644,7 @@ def main():
         render_predictor_app()
         return
 
-    # 已登录但无权限：仍然只给预览
+    # 已登录但未授权
     render_paywall(user_email=user_email, access_level=access_level)
 
 
