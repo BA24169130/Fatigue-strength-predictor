@@ -144,7 +144,7 @@ def get_access_lists():
     - authorized_users：已授权用户
 
     说明：
-    你以后无论是“购买后开通”还是“手动免费授权”，
+    你以后无论是手动开通还是免费授权，
     都直接把邮箱加入 authorized_users 即可。
     """
     access_section = get_secret_section("access_control")
@@ -161,14 +161,6 @@ def is_authorized_user(user_email: str) -> bool:
     """
     admin_users, authorized_users = get_access_lists()
     return user_email in admin_users or user_email in authorized_users
-
-
-def get_purchase_url() -> str:
-    """
-    读取购买链接。
-    例如 Stripe Payment Link。
-    """
-    return str(get_secret_value("payments", "purchase_url", "")).strip()
 
 
 # =========================
@@ -457,10 +449,9 @@ def render_preview_section():
 def render_access_prompt(user_email: str = ""):
     """
     在 authorized 模式下，如果当前用户还不能使用，
-    就显示登录、购买和授权说明。
+    就显示登录和授权说明。
+    不再显示任何“购买使用权”相关按钮。
     """
-    purchase_url = get_purchase_url()
-
     st.markdown("---")
     st.subheader("正式使用入口")
 
@@ -473,34 +464,17 @@ def render_access_prompt(user_email: str = ""):
     # 未登录
     if not safe_is_logged_in():
         st.warning("当前为公开预览模式。请先登录；若你的账户已被授权，则登录后可直接使用。")
-        col1, col2 = st.columns(2)
 
-        with col1:
-            if st.button("登录并验证身份", use_container_width=True):
-                st.login()
-
-        with col2:
-            if purchase_url:
-                st.link_button("购买使用权", purchase_url, use_container_width=True)
-            else:
-                st.button("购买使用权（请先配置 purchase_url）", disabled=True, use_container_width=True)
+        if st.button("登录并验证身份", use_container_width=True):
+            st.login()
         return
 
     # 已登录但未授权
     st.warning(f"当前登录账号：{user_email}。你已登录，但尚未获得使用权限。")
-    col1, col2 = st.columns(2)
+    st.info("如需开通权限，请联系管理员将你的邮箱加入 authorized_users。")
 
-    with col1:
-        if purchase_url:
-            st.link_button("立即购买", purchase_url, use_container_width=True)
-        else:
-            st.button("立即购买（请先配置 purchase_url）", disabled=True, use_container_width=True)
-
-    with col2:
-        if st.button("退出登录", use_container_width=True):
-            st.logout()
-
-    st.info("管理员说明：如果你想免费给某个账户开通权限，只需要把这个邮箱加入 authorized_users。")
+    if st.button("退出登录", use_container_width=True):
+        st.logout()
 
 
 # =========================
@@ -529,7 +503,7 @@ authorized_users = ["user1@example.com", "user2@example.com"]
         """.strip()
     )
 
-    st.success("你以后无论是购买后开通，还是想主动赠送某个账户免费权限，都只需要把对方邮箱加入 authorized_users。")
+    st.success("你以后无论是手动开通，还是想主动赠送某个账户免费权限，都只需要把对方邮箱加入 authorized_users。")
 
 
 # =========================
