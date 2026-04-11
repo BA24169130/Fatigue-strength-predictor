@@ -148,6 +148,10 @@ def get_access_lists():
     读取权限名单：
     - admin_users：管理员
     - authorized_users：已授权用户
+
+    说明：
+    你以后无论是手动开通还是免费授权，
+    都直接把邮箱加入 authorized_users 即可。
     """
     access_section = get_secret_section("access_control")
 
@@ -191,7 +195,8 @@ def get_db_connection():
 def init_visitor_db():
     """
     初始化访问统计数据库。
-    visits 表里每条记录代表一个页面会话的首次访问。
+    visits 表里每条记录代表一次有效进入。
+    visit_key 设置唯一约束，用来防止同一页面刷新重复计数。
     """
     with get_db_lock():
         conn = get_db_connection()
@@ -200,7 +205,7 @@ def init_visitor_db():
                 """
                 CREATE TABLE IF NOT EXISTS visits (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_key TEXT NOT NULL UNIQUE,
+                    visit_key TEXT NOT NULL UNIQUE,
                     first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
                 """
@@ -210,26 +215,45 @@ def init_visitor_db():
             conn.close()
 
 
-def register_visit_once_per_session() -> int:
+def get_or_create_visit_key() -> str:
     """
-    每个页面会话只累计一次访问。
-    - 当前会话第一次进入：计数 +1
-    - 当前会话后续所有重跑：不重复加
+    获取当前页面访问标识。
+
+    逻辑：
+    1) 如果 URL 里已经有 v 参数，说明这是同一次进入后的刷新或交互，不重复计数
+    2) 如果没有 v 参数，说明是一次新的进入，生成新的 visit_key，并写入 URL
+
+    这样可以做到：
+    - 第一次点进页面：计数 +1
+    - 同一页面刷新：不再 +1
+    - 重新从主页进入：会生成新 key，再 +1
+    """
+    params = st.query_params
+
+    if "v" in params and str(params["v"]).strip():
+        return str(params["v"]).strip()
+
+    new_key = str(uuid.uuid4())
+    st.query_params["v"] = new_key
+    return new_key
+
+
+def register_visit_once_per_entry() -> int:
+    """
+    每次真正“进入页面”只累计一次。
+    同一个页面刷新时，因为 URL 中保留同一个 visit_key，所以不会重复计数。
+
     返回当前累计访问人数。
     """
     init_visitor_db()
-
-    if "_visitor_session_key" not in st.session_state:
-        st.session_state["_visitor_session_key"] = str(uuid.uuid4())
-
-    session_key = st.session_state["_visitor_session_key"]
+    visit_key = get_or_create_visit_key()
 
     with get_db_lock():
         conn = get_db_connection()
         try:
             conn.execute(
-                "INSERT OR IGNORE INTO visits (session_key) VALUES (?)",
-                (session_key,)
+                "INSERT OR IGNORE INTO visits (visit_key) VALUES (?)",
+                (visit_key,)
             )
             conn.commit()
 
@@ -245,7 +269,7 @@ def render_visitor_counter():
     """
     在标题下方显示累计访问人数。
     """
-    total_visits = register_visit_once_per_session()
+    total_visits = register_visit_once_per_entry()
 
     st.markdown(
         f"""
