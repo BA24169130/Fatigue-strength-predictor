@@ -10,17 +10,24 @@ from tensorflow import keras
 
 
 # =========================
-# 1. 读取路径与配置文件
+# 1. 基本路径与配置文件读取
 # =========================
-# APP_DIR 表示当前 streamlit_app.py 所在文件夹
+# APP_DIR 表示当前这个 streamlit_app.py 所在的文件夹
 APP_DIR = Path(__file__).resolve().parent
 
-# 读取配置文件 model_config.json
+# 读取模型配置文件
+# 这个 json 里通常包含：
+# - 模型文件名
+# - scaler 文件名
+# - 训练数据文件名
+# - 特征名称
+# - 特征显示标签
+# - 输入范围等
 CONFIG = json.loads((APP_DIR / "model_config.json").read_text(encoding="utf-8"))
 
 
 # =========================
-# 2. 设置网页基础信息
+# 2. 页面基础设置
 # =========================
 st.set_page_config(
     page_title="Fatigue Strength Predictor",
@@ -32,15 +39,16 @@ st.set_page_config(
 # =========================
 # 3. 加载模型、scaler 和训练数据
 # =========================
-# 使用缓存，避免每次点击按钮都重复加载模型，提高速度
+# 使用缓存的好处：
+# 页面每次交互时不会重复加载模型，速度会更快
 @st.cache_resource(show_spinner=False)
 def load_assets():
     """
     加载：
-    1) 训练好的 Keras 模型
+    1) Keras 模型
     2) 输入特征标准化器 scaler_X
     3) 输出标准化器 scaler_y
-    4) 训练数据集（用于显示样本数、生成批量模板）
+    4) 训练数据集（用于展示样本数、生成批量模板等）
     """
     model = keras.models.load_model(APP_DIR / CONFIG["model_file"])
     scaler_x = joblib.load(APP_DIR / CONFIG["scaler_x_file"])
@@ -54,11 +62,9 @@ def load_assets():
 # =========================
 def predict_values(model, scaler_x, scaler_y, X_raw):
     """
-    输入原始尺度 X_raw
-    -> 用 scaler_x 标准化
-    -> 用模型预测
-    -> 用 scaler_y 反标准化
-    最终返回原始尺度的预测值
+    输入原始尺度的 X_raw
+    先用 scaler_x 标准化，再用模型预测，
+    最后再用 scaler_y 反标准化，得到原始尺度预测值
     """
     X_scaled = scaler_x.transform(X_raw)
     y_scaled = model.predict(X_scaled, verbose=0)
@@ -67,13 +73,15 @@ def predict_values(model, scaler_x, scaler_y, X_raw):
 
 
 # =========================
-# 5. 检查输入是否超出训练范围
+# 5. 输入范围检查
 # =========================
 def get_range_warnings(values):
     """
-    如果输入超出训练数据范围，则给出警告信息
+    检查当前输入是否超出训练范围。
+    如果超出，则返回警告信息列表。
     """
     warnings = []
+
     for feat in CONFIG["feature_names"]:
         low = CONFIG["feature_ranges"][feat]["train_min"]
         high = CONFIG["feature_ranges"][feat]["train_max"]
@@ -86,11 +94,12 @@ def get_range_warnings(values):
 
 
 # =========================
-# 6. DataFrame 转为 Excel 下载流
+# 6. DataFrame 导出为 Excel 字节流
 # =========================
 def df_to_xlsx_bytes(df):
     """
-    将 DataFrame 转成 Excel 二进制，方便下载按钮下载
+    将 DataFrame 导出成 Excel 的二进制内容，
+    方便 streamlit 的下载按钮直接下载
     """
     bio = io.BytesIO()
     with pd.ExcelWriter(bio, engine="openpyxl") as writer:
@@ -106,13 +115,12 @@ def main():
     model, scaler_x, scaler_y, train_df = load_assets()
 
     # =========================
-    # 7.1 页面样式 CSS
+    # 7.1 页面样式（CSS）
     # =========================
-    # 你这次最关心的是两处：
-    # 1) “开始预测”按钮字体变大变粗
-    # 2) 预测结果那一行字体变大变粗
-    # 所以我专门新增了 .prediction-result 样式，
-    # 并把 .stButton > button 的字号和字重调大
+    # 本次只重点改两处：
+    # 1) 标签页字体适当放大
+    # 2) “开始预测”按钮文字加粗，并略微放大
+    # 其他样式保持你当前版本不变
     st.markdown("""
     <style>
     /* 整体基础字号 */
@@ -143,10 +151,12 @@ def main():
     }
 
     /* ===== 侧边栏紧凑化 ===== */
+    /* 去除侧边栏顶部空白 */
     [data-testid="stSidebar"] > div:first-child {
         padding-top: 0.5rem !important;
     }
 
+    /* 侧边栏行距减小 */
     [data-testid="stSidebar"] .stMarkdown,
     [data-testid="stSidebar"] .stSubheader,
     [data-testid="stSidebar"] .stWrite {
@@ -154,25 +164,33 @@ def main():
         line-height: 1.3 !important;
     }
 
+    /* 侧边栏小标题紧凑 */
     [data-testid="stSidebar"] .stSubheader {
         margin-top: 0.5rem !important;
         margin-bottom: 0.3rem !important;
         font-size: 18px !important;
     }
 
+    /* 侧边栏分隔线紧凑 */
     [data-testid="stSidebar"] hr {
         margin-top: 0.5rem !important;
         margin-bottom: 0.5rem !important;
     }
 
+    /* 侧边栏文字大小（稍小一点更紧凑） */
     [data-testid="stSidebar"] * {
         font-size: 16px !important;
     }
 
-    /* 标签页 */
+    /* =========================
+       标签页：适当放大一点
+       你框起来的“单点预测 / 批量预测 / 训练范围”就在这里调
+       ========================= */
     button[data-baseweb="tab"] {
-        font-size: 28px !important;
+        font-size: 32px !important;      /* 原来 28px，这里适当放大 */
         font-weight: 700 !important;
+        padding-top: 6px !important;
+        padding-bottom: 6px !important;
     }
 
     /* 小标题 */
@@ -192,16 +210,16 @@ def main():
     }
 
     /* =========================
-       这里是“开始预测”按钮的样式
-       如果你以后还想继续放大，就改这里
+       “开始预测”按钮：字体加粗 + 略微放大
+       这里只改你要求的按钮文字，不动其他部分
        ========================= */
     .stButton > button {
-        font-size: 28px !important;     /* 原来更小，这里调大 */
-        font-weight: 800 !important;    /* 加粗 */
-        height: 3.6rem !important;      /* 按钮高度也略增大 */
+        font-size: 26px !important;      /* 原来 24px，这里略微放大 */
+        font-weight: 800 !important;     /* 原来 700，这里加粗 */
+        height: 3.3rem !important;       /* 高度略增一点，视觉更协调 */
     }
 
-    /* 普通提示框字体 */
+    /* 成功/提示信息 */
     [data-testid="stAlert"] {
         font-size: 20px !important;
     }
@@ -217,28 +235,9 @@ def main():
     [data-testid="stDataFrame"] tbody td {
         font-size: 17px !important;
     }
-
-    /* =========================
-       这里是预测结果文字的专属样式
-       只影响“预测疲劳强度 ...”这一行
-       ========================= */
-    .prediction-result {
-        background-color: #dff0df;
-        color: #1e7a46;
-        border-radius: 0.5rem;
-        padding: 16px 18px;
-        margin-top: 0.8rem;
-        margin-bottom: 0.8rem;
-        font-size: 30px;      /* 结果字体放大 */
-        font-weight: 800;     /* 结果加粗 */
-        line-height: 1.4;
-    }
     </style>
     """, unsafe_allow_html=True)
 
-    # =========================
-    # 7.2 页面顶部标题
-    # =========================
     st.markdown(
         f'<div class="main-title">{CONFIG["app_title_zh"]}</div>',
         unsafe_allow_html=True,
@@ -248,9 +247,6 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # =========================
-    # 7.3 左侧侧边栏
-    # =========================
     with st.sidebar:
         st.subheader("📁 已接入文件")
         st.write("✅ model.keras")
@@ -273,20 +269,13 @@ def main():
         for note in CONFIG["notes"]:
             st.write(f"- {note}")
 
-    # =========================
-    # 7.4 三个标签页
-    # =========================
     tab1, tab2, tab3 = st.tabs(["单点预测", "批量预测", "训练范围"])
 
-    # =========================================================
-    # Tab 1：单点预测
-    # =========================================================
     with tab1:
         st.subheader("在线单点预测")
         col1, col2 = st.columns(2)
         values = {}
 
-        # 自动生成输入框
         for i, feat in enumerate(CONFIG["feature_names"]):
             meta = CONFIG["feature_ranges"][feat]
             target_col = col1 if i % 2 == 0 else col2
@@ -300,29 +289,12 @@ def main():
                     format="%.6f",
                 )
 
-        # 点击预测按钮
         if st.button("🔮 开始预测", type="primary", use_container_width=True):
-            # 组装模型输入
             X = np.array([[values[f] for f in CONFIG["feature_names"]]], dtype=float)
-
-            # 调用模型预测
             pred = float(predict_values(model, scaler_x, scaler_y, X)[0])
 
-            # =========================
-            # 这里不再用 st.success
-            # 因为你只想把“预测结果”这一行单独放大加粗
-            # 所以改成自定义的 HTML 样式框
-            # =========================
-            st.markdown(
-                f"""
-                <div class="prediction-result">
-                    ✅ {CONFIG['target_label_zh']} = {pred:.4f} MPa
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            st.success(f"✅ {CONFIG['target_label_zh']} = {pred:.4f} MPa")
 
-            # 显示范围检查结果
             warnings = get_range_warnings(values)
             if warnings:
                 st.warning("⚠️ 以下输入超出训练范围，当前结果属于外推，需谨慎解释：")
@@ -331,7 +303,6 @@ def main():
             else:
                 st.info("ℹ️ 当前输入处于训练数据范围内。")
 
-            # 显示当前输入信息
             st.dataframe(
                 pd.DataFrame({
                     "Feature": CONFIG["feature_names"],
@@ -342,15 +313,11 @@ def main():
                 hide_index=True,
             )
 
-    # =========================================================
-    # Tab 2：批量预测
-    # =========================================================
     with tab2:
         st.subheader("批量预测")
         st.write("上传 xlsx 或 csv 文件，列名必须包含：E、σb、R、σ-1")
         uploaded = st.file_uploader("上传文件", type=["xlsx", "csv"])
 
-        # 批量预测模板
         template_df = train_df[CONFIG["feature_names"]].head(10).copy()
         st.download_button(
             "📥 下载批量输入模板",
@@ -389,9 +356,6 @@ def main():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
 
-    # =========================================================
-    # Tab 3：训练范围
-    # =========================================================
     with tab3:
         st.subheader("训练数据范围")
         range_df = pd.DataFrame({
@@ -411,8 +375,5 @@ def main():
         st.write("4. 当前版本直接调用你上传的原始模型文件。")
 
 
-# =========================
-# 8. 程序入口
-# =========================
 if __name__ == "__main__":
     main()
