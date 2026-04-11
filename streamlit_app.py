@@ -1,5 +1,8 @@
 import io
 import json
+import sqlite3
+import threading
+import uuid
 from pathlib import Path
 
 import joblib
@@ -16,6 +19,9 @@ APP_DIR = Path(__file__).resolve().parent
 
 # 读取模型配置文件
 CONFIG = json.loads((APP_DIR / "model_config.json").read_text(encoding="utf-8"))
+
+# SQLite 数据库文件
+VISITOR_DB_FILE = APP_DIR / "visitor_counter.db"
 
 
 # =========================
@@ -142,10 +148,6 @@ def get_access_lists():
     读取权限名单：
     - admin_users：管理员
     - authorized_users：已授权用户
-
-    说明：
-    你以后无论是手动开通还是免费授权，
-    都直接把邮箱加入 authorized_users 即可。
     """
     access_section = get_secret_section("access_control")
 
@@ -164,7 +166,115 @@ def is_authorized_user(user_email: str) -> bool:
 
 
 # =========================
-# 4. 加载模型、scaler 和训练数据
+# 4. SQLite 数据库版访问人数统计
+# =========================
+@st.cache_resource
+def get_db_lock():
+    """
+    全局线程锁。
+    用于避免多人同时访问时写数据库冲突。
+    """
+    return threading.Lock()
+
+
+def get_db_connection():
+    """
+    创建 SQLite 连接。
+    每次操作都单独打开一个连接，避免跨线程共用连接。
+    """
+    conn = sqlite3.connect(VISITOR_DB_FILE)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    return conn
+
+
+def init_visitor_db():
+    """
+    初始化访问统计数据库。
+    visits 表里每条记录代表一个页面会话的首次访问。
+    """
+    with get_db_lock():
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS visits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_key TEXT NOT NULL UNIQUE,
+                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def register_visit_once_per_session() -> int:
+    """
+    每个页面会话只累计一次访问。
+    - 当前会话第一次进入：计数 +1
+    - 当前会话后续所有重跑：不重复加
+    返回当前累计访问人数。
+    """
+    init_visitor_db()
+
+    if "_visitor_session_key" not in st.session_state:
+        st.session_state["_visitor_session_key"] = str(uuid.uuid4())
+
+    session_key = st.session_state["_visitor_session_key"]
+
+    with get_db_lock():
+        conn = get_db_connection()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO visits (session_key) VALUES (?)",
+                (session_key,)
+            )
+            conn.commit()
+
+            cur = conn.execute("SELECT COUNT(*) FROM visits")
+            total_visits = int(cur.fetchone()[0])
+        finally:
+            conn.close()
+
+    return total_visits
+
+
+def render_visitor_counter():
+    """
+    在标题下方显示累计访问人数。
+    """
+    total_visits = register_visit_once_per_session()
+
+    st.markdown(
+        f"""
+        <div style="
+            display:flex;
+            justify-content:center;
+            margin-top:-2px;
+            margin-bottom:12px;
+        ">
+            <div style="
+                display:inline-block;
+                padding:7px 16px;
+                border-radius:999px;
+                background:#f3f7ff;
+                color:#1f4e8c;
+                font-size:16px;
+                font-weight:700;
+                border:1px solid #dbe7ff;
+            ">
+                累计访问人数：{total_visits}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# =========================
+# 5. 加载模型、scaler 和训练数据
 # =========================
 @st.cache_resource(show_spinner=False)
 def load_assets():
@@ -183,7 +293,7 @@ def load_assets():
 
 
 # =========================
-# 5. 预测函数
+# 6. 预测函数
 # =========================
 def predict_values(model, scaler_x, scaler_y, X_raw):
     """
@@ -198,7 +308,7 @@ def predict_values(model, scaler_x, scaler_y, X_raw):
 
 
 # =========================
-# 6. 输入范围检查
+# 7. 输入范围检查
 # =========================
 def get_range_warnings(values):
     """
@@ -219,7 +329,7 @@ def get_range_warnings(values):
 
 
 # =========================
-# 7. DataFrame 导出为 Excel 字节流
+# 8. DataFrame 导出为 Excel 字节流
 # =========================
 def df_to_xlsx_bytes(df):
     """
@@ -233,7 +343,7 @@ def df_to_xlsx_bytes(df):
 
 
 # =========================
-# 8. 页面样式（尽量保持你原有布局不变）
+# 9. 页面样式（尽量保持你原有布局不变）
 # =========================
 def render_global_style():
     st.markdown("""
@@ -399,7 +509,7 @@ def render_global_style():
 
 
 # =========================
-# 9. 页面顶部标题
+# 10. 页面顶部标题
 # =========================
 def render_header():
     st.markdown(
@@ -413,7 +523,7 @@ def render_header():
 
 
 # =========================
-# 10. 未授权时的公开预览说明
+# 11. 未授权时的公开预览说明
 # =========================
 def render_preview_section():
     """
@@ -444,7 +554,7 @@ def render_preview_section():
 
 
 # =========================
-# 11. 未授权时的操作提示
+# 12. 未授权时的操作提示
 # =========================
 def render_access_prompt(user_email: str = ""):
     """
@@ -478,7 +588,7 @@ def render_access_prompt(user_email: str = ""):
 
 
 # =========================
-# 12. 管理员提示区
+# 13. 管理员提示区
 # =========================
 def render_admin_panel():
     """
@@ -507,10 +617,9 @@ authorized_users = ["user1@example.com", "user2@example.com"]
 
 
 # =========================
-# 13. 正式预测平台
+# 14. 正式预测平台
 # =========================
 def render_predictor_app():
-  
     model, scaler_x, scaler_y, train_df = load_assets()
 
     # 左侧侧边栏
@@ -655,17 +764,19 @@ def render_predictor_app():
 
 
 # =========================
-# 14. 主程序入口
+# 15. 主程序入口
 # =========================
 def main():
     """
     主逻辑：
     1) 永远先显示页面标题
-    2) public 模式 -> 直接开放
-    3) authorized 模式 -> 只有授权用户可用
+    2) 标题下方显示累计访问人数
+    3) public 模式 -> 直接开放
+    4) authorized 模式 -> 只有授权用户可用
     """
     render_global_style()
     render_header()
+    render_visitor_counter()
 
     mode = get_access_mode()
 
@@ -716,7 +827,7 @@ def main():
 
 
 # =========================
-# 15. 程序入口
+# 16. 程序入口
 # =========================
 if __name__ == "__main__":
     main()
