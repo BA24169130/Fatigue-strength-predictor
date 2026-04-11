@@ -1,8 +1,5 @@
 import io
 import json
-import sqlite3
-import threading
-import uuid
 from pathlib import Path
 
 import joblib
@@ -19,9 +16,6 @@ APP_DIR = Path(__file__).resolve().parent
 
 # 读取模型配置文件
 CONFIG = json.loads((APP_DIR / "model_config.json").read_text(encoding="utf-8"))
-
-# SQLite 数据库文件
-VISITOR_DB_FILE = Path("/tmp") / "visitor_counter.db"
 
 
 # =========================
@@ -148,6 +142,10 @@ def get_access_lists():
     读取权限名单：
     - admin_users：管理员
     - authorized_users：已授权用户
+
+    说明：
+    你以后无论是手动开通还是免费授权，
+    都直接把邮箱加入 authorized_users 即可。
     """
     access_section = get_secret_section("access_control")
 
@@ -166,202 +164,7 @@ def is_authorized_user(user_email: str) -> bool:
 
 
 # =========================
-# 4. SQLite 数据库版访问人数统计
-# =========================
-@st.cache_resource
-def get_db_lock():
-    """
-    全局线程锁。
-    用于避免多人同时访问时写数据库冲突。
-    """
-    return threading.Lock()
-
-
-def get_db_connection():
-    """
-    创建 SQLite 连接。
-    每次操作都单独打开一个连接，避免跨线程共用连接。
-    增加 timeout，提高并发时的稳定性。
-    """
-    conn = sqlite3.connect(VISITOR_DB_FILE, timeout=10)
-    conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA synchronous=NORMAL;")
-    return conn
-
-
-def rebuild_visits_table(conn):
-    """
-    当旧表结构不兼容时，重建 visits 表。
-    """
-    conn.execute("DROP TABLE IF EXISTS visits")
-    conn.execute(
-        """
-        CREATE TABLE visits (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            session_key TEXT NOT NULL UNIQUE,
-            first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    conn.commit()
-
-
-def init_visitor_db():
-    """
-    初始化访问统计数据库。
-    """
-    with get_db_lock():
-        conn = get_db_connection()
-        try:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS visits (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_key TEXT NOT NULL UNIQUE,
-                    first_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-            conn.commit()
-
-            cur = conn.execute("PRAGMA table_info(visits)")
-            columns = [row[1] for row in cur.fetchall()]
-
-            if "session_key" not in columns:
-                rebuild_visits_table(conn)
-
-        finally:
-            conn.close()
-
-
-def get_or_create_visit_key() -> str:
-    """
-    获取当前页面访问标识。
-
-    逻辑：
-    1) 如果 URL 里已经有 v 参数，说明这是同一次进入后的刷新或交互，不重复计数
-    2) 如果没有 v 参数，说明是一次新的进入，生成新的 visit_key，并写入 URL
-    """
-    params = st.query_params
-
-    if "v" in params and str(params["v"]).strip():
-        return str(params["v"]).strip()
-
-    new_key = str(uuid.uuid4())
-    st.query_params["v"] = new_key
-    return new_key
-
-
-def register_visit_once_per_entry() -> int:
-    """
-    每次真正“进入页面”只累计一次。
-    同一个页面刷新时，因为 URL 中保留同一个 visit_key，所以不会重复计数。
-    """
-    init_visitor_db()
-    visit_key = get_or_create_visit_key()
-
-    with get_db_lock():
-        conn = get_db_connection()
-        try:
-            conn.execute(
-                "INSERT OR IGNORE INTO visits (session_key) VALUES (?)",
-                (visit_key,)
-            )
-            conn.commit()
-
-            cur = conn.execute("SELECT COUNT(*) FROM visits")
-            total_visits = int(cur.fetchone()[0])
-        finally:
-            conn.close()
-
-    return total_visits
-
-
-def render_visitor_counter():
-    """
-    在标题下方显示累计访问人数。
-    """
-    total_visits = register_visit_once_per_entry()
-
-    st.markdown(
-        f"""
-        <div style="
-            display:flex;
-            justify-content:center;
-            margin-top:-2px;
-            margin-bottom:12px;
-        ">
-            <div style="
-                display:inline-block;
-                padding:7px 16px;
-                border-radius:999px;
-                background:#f3f7ff;
-                color:#1f4e8c;
-                font-size:16px;
-                font-weight:700;
-                border:1px solid #dbe7ff;
-            ">
-                累计访问人数：{total_visits}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# =========================
-# 5. 账户切换辅助函数
-# =========================
-def is_switch_account_mode() -> bool:
-    """
-    判断当前是否处于“切换账户”模式。
-    """
-    try:
-        return str(st.query_params.get("switch", "")).strip() == "1"
-    except Exception:
-        return False
-
-
-def trigger_switch_account():
-    """
-    触发切换账户：
-    先在 URL 中写入 switch=1，再退出当前账号。
-    退出后页面会提示用户登录其他账号。
-    """
-    st.query_params["switch"] = "1"
-    st.logout()
-
-
-def trigger_normal_logout():
-    """
-    正常退出登录。
-    """
-    try:
-        if "switch" in st.query_params:
-            del st.query_params["switch"]
-    except Exception:
-        pass
-    st.logout()
-
-
-def render_account_action_buttons(prefix: str):
-    """
-    渲染“切换账户 / 退出登录”按钮。
-    prefix 用于避免不同位置按钮 key 冲突。
-    """
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("切换账户", use_container_width=True, key=f"{prefix}_switch_account"):
-            trigger_switch_account()
-
-    with col2:
-        if st.button("退出登录", use_container_width=True, key=f"{prefix}_logout"):
-            trigger_normal_logout()
-
-
-# =========================
-# 6. 加载模型、scaler 和训练数据
+# 4. 加载模型、scaler 和训练数据
 # =========================
 @st.cache_resource(show_spinner=False)
 def load_assets():
@@ -380,7 +183,7 @@ def load_assets():
 
 
 # =========================
-# 7. 预测函数
+# 5. 预测函数
 # =========================
 def predict_values(model, scaler_x, scaler_y, X_raw):
     """
@@ -395,7 +198,7 @@ def predict_values(model, scaler_x, scaler_y, X_raw):
 
 
 # =========================
-# 8. 输入范围检查
+# 6. 输入范围检查
 # =========================
 def get_range_warnings(values):
     """
@@ -416,7 +219,7 @@ def get_range_warnings(values):
 
 
 # =========================
-# 9. DataFrame 导出为 Excel 字节流
+# 7. DataFrame 导出为 Excel 字节流
 # =========================
 def df_to_xlsx_bytes(df):
     """
@@ -430,19 +233,22 @@ def df_to_xlsx_bytes(df):
 
 
 # =========================
-# 10. 页面样式（尽量保持你原有布局不变）
+# 8. 页面样式（尽量保持你原有布局不变）
 # =========================
 def render_global_style():
     st.markdown("""
     <style>
+    /* ===== 页面整体基础字号 ===== */
     html, body, [class*="css"] {
         font-size: 18px;
     }
 
+    /* ===== 主要内容区域顶部留白减小 ===== */
     .block-container {
         padding-top: 2rem !important;
     }
 
+    /* ===== 主标题 ===== */
     .main-title {
         font-size: 2.8rem;
         font-weight: 700;
@@ -451,6 +257,7 @@ def render_global_style():
         text-align: center;
     }
 
+    /* ===== 副标题 ===== */
     .sub-title {
         font-size: 1.3rem;
         color: #444444;
@@ -458,6 +265,7 @@ def render_global_style():
         text-align: center;
     }
 
+    /* ===== 侧边栏整体紧凑一些 ===== */
     [data-testid="stSidebar"] > div:first-child {
         padding-top: 0.5rem !important;
     }
@@ -480,10 +288,12 @@ def render_global_style():
         margin-bottom: 0.5rem !important;
     }
 
+    /* 侧边栏文字稍微加大 */
     [data-testid="stSidebar"] * {
         font-size: 17px !important;
     }
 
+    /* ===== 标签页外观 ===== */
     button[data-baseweb="tab"] {
         padding: 10px 18px !important;
         min-height: 48px !important;
@@ -496,29 +306,35 @@ def render_global_style():
         font-weight: 700 !important;
     }
 
+    /* ===== 小标题 ===== */
     h2, h3 {
         font-size: 1.9rem !important;
     }
 
+    /* ===== 输入框标签 ===== */
     label, .stNumberInput label, .stTextInput label {
         font-size: 20px !important;
         font-weight: 600 !important;
     }
 
+    /* ===== 输入框里的数字 ===== */
     div[data-baseweb="input"] input {
         font-size: 21px !important;
     }
 
+    /* ===== 按钮文字 ===== */
     .stButton > button {
         font-size: 22px !important;
         font-weight: 700 !important;
         height: 3.2rem !important;
     }
 
+    /* ===== 成功、警告、提示框 ===== */
     [data-testid="stAlert"] {
         font-size: 19px !important;
     }
 
+    /* ===== 预测结果文字专属样式 ===== */
     .prediction-result {
         background-color: #dff0df;
         color: #1e7a46;
@@ -531,6 +347,7 @@ def render_global_style():
         line-height: 1.4;
     }
 
+    /* ===== 公开预览提示卡片 ===== */
     .preview-card {
         border: 1px solid #d9e3f0;
         border-radius: 14px;
@@ -551,6 +368,7 @@ def render_global_style():
         margin-bottom: 10px;
     }
 
+    /* ===== st.table 表格字体 ===== */
     [data-testid="stTable"] table {
         font-size: 19px !important;
         width: 100% !important;
@@ -566,6 +384,7 @@ def render_global_style():
         font-size: 19px !important;
     }
 
+    /* ===== st.dataframe 表格字体 ===== */
     [data-testid="stDataFrame"] thead th {
         font-size: 18px !important;
         font-weight: 700 !important;
@@ -580,7 +399,7 @@ def render_global_style():
 
 
 # =========================
-# 11. 页面顶部标题
+# 9. 页面顶部标题
 # =========================
 def render_header():
     st.markdown(
@@ -594,9 +413,12 @@ def render_header():
 
 
 # =========================
-# 12. 未授权时的公开预览说明
+# 10. 未授权时的公开预览说明
 # =========================
 def render_preview_section():
+    """
+    只有未授权用户才显示这一段。
+    """
     mode = get_access_mode()
 
     st.markdown(
@@ -622,16 +444,18 @@ def render_preview_section():
 
 
 # =========================
-# 13. 未授权时的操作提示
+# 11. 未授权时的操作提示
 # =========================
 def render_access_prompt(user_email: str = ""):
     """
     在 authorized 模式下，如果当前用户还不能使用，
-    就显示登录、切换账户和授权说明。
+    就显示登录和授权说明。
+    不再显示任何“购买使用权”相关按钮。
     """
     st.markdown("---")
     st.subheader("登录入口")
 
+    # 没有配置 OIDC
     if not auth_is_configured():
         st.warning("当前平台已切换到 authorized 模式，但登录认证尚未配置完成，因此暂时只能预览。")
         st.info("请先在 secrets.toml 中完成 [auth] 配置。")
@@ -639,12 +463,9 @@ def render_access_prompt(user_email: str = ""):
 
     # 未登录
     if not safe_is_logged_in():
-        if is_switch_account_mode():
-            st.info("已退出当前账号，请点击下方按钮登录其他账号。")
-        else:
-            st.warning("当前为公开预览模式，请先登录；若您的账户已被授权，登录后可直接使用。")
+        st.warning("当前为公开预览模式，请先登录；若您的账户已被授权，登录后可直接使用。")
 
-        if st.button("登录并验证身份", use_container_width=True, key="login_entry_button"):
+        if st.button("登录并验证身份", use_container_width=True):
             st.login()
         return
 
@@ -652,13 +473,17 @@ def render_access_prompt(user_email: str = ""):
     st.warning(f"当前登录账号：{user_email}。你已登录，但尚未获得使用权限。")
     st.info("如需开通权限，请联系管理员将你的邮箱加入 authorized_users。")
 
-    render_account_action_buttons(prefix="unauthorized_user_actions")
+    if st.button("退出登录", use_container_width=True):
+        st.logout()
 
 
 # =========================
-# 14. 管理员提示区
+# 12. 管理员提示区
 # =========================
 def render_admin_panel():
+    """
+    给管理员看的说明。
+    """
     st.markdown("---")
     st.subheader("管理员说明")
 
@@ -682,11 +507,13 @@ authorized_users = ["user1@example.com", "user2@example.com"]
 
 
 # =========================
-# 15. 正式预测平台
+# 13. 正式预测平台
 # =========================
 def render_predictor_app():
+  
     model, scaler_x, scaler_y, train_df = load_assets()
 
+    # 左侧侧边栏
     with st.sidebar:
         st.subheader("📁 已接入文件")
         st.write("✅ model.keras")
@@ -709,8 +536,10 @@ def render_predictor_app():
         for note in CONFIG["notes"]:
             st.write(f"- {note}")
 
+    # 主体标签页
     tab1, tab2, tab3 = st.tabs(["单点预测", "批量预测", "训练范围"])
 
+    # Tab 1：单点预测
     with tab1:
         st.subheader("单点预测")
 
@@ -759,6 +588,7 @@ def render_predictor_app():
             })
             st.table(result_df)
 
+    # Tab 2：批量预测
     with tab2:
         st.subheader("批量预测")
         st.write("上传 xlsx 或 csv 文件，列名必须包含：E、σb、R、σ-1")
@@ -803,6 +633,7 @@ def render_predictor_app():
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
 
+    # Tab 3：训练范围
     with tab3:
         st.subheader("训练数据范围")
 
@@ -824,33 +655,35 @@ def render_predictor_app():
 
 
 # =========================
-# 16. 主程序入口
+# 14. 主程序入口
 # =========================
 def main():
     """
     主逻辑：
     1) 永远先显示页面标题
-    2) 标题下方显示累计访问人数
-    3) public 模式 -> 直接开放
-    4) authorized 模式 -> 只有授权用户可用
+    2) public 模式 -> 直接开放
+    3) authorized 模式 -> 只有授权用户可用
     """
     render_global_style()
     render_header()
-    render_visitor_counter()
 
     mode = get_access_mode()
 
+    # 免费公开版本
     if mode == "public":
         st.success("当前模式为 public：所有访问者都可直接使用正式预测功能。")
         render_predictor_app()
         return
 
+    # 授权使用版本
     if mode == "authorized":
+        # 未配置 OIDC，先只能预览
         if not auth_is_configured():
             render_preview_section()
             render_access_prompt()
             return
 
+        # 未登录，先显示预览
         if not safe_is_logged_in():
             render_preview_section()
             render_access_prompt()
@@ -858,10 +691,16 @@ def main():
 
         user_email = get_current_user_email()
 
+        # 已登录且有授权
         if is_authorized_user(user_email):
             st.success(f"当前登录账号：{user_email}；已获得使用权限")
 
-            render_account_action_buttons(prefix="authorized_user_actions")
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                if st.button("退出登录"):
+                    st.logout()
+            with col2:
+                st.empty()
 
             admin_users, _ = get_access_lists()
             if user_email in admin_users:
@@ -870,13 +709,14 @@ def main():
             render_predictor_app()
             return
 
+        # 已登录但未授权
         render_preview_section()
         render_access_prompt(user_email=user_email)
         return
 
 
 # =========================
-# 17. 程序入口
+# 15. 程序入口
 # =========================
 if __name__ == "__main__":
     main()
