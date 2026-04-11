@@ -52,6 +52,32 @@ def main():
     model, scaler_x, scaler_y, train_df = load_assets()
 
     st.markdown("""
+   /* ===== 去除顶部空白，让主标题顶到最上面 ===== */
+/* 隐藏默认的顶部占位栏 */
+header {
+    visibility: hidden;
+    height: 0rem;
+}
+
+/* 去除主要内容区域的内边距 */
+.block-container {
+    padding-top: 0rem !important;
+    padding-bottom: 0rem !important;
+}
+
+/* 针对 Streamlit 1.10+ 版本 */
+.main .block-container {
+    padding-top: 0rem !important;
+}
+
+/* 去除最外层容器的内边距 */
+.stApp > header {
+    display: none;
+}
+
+.stApp {
+    margin-top: 0rem;
+}
     <style>
     /* 整体基础字号 */
     html, body, [class*="css"] {
