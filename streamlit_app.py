@@ -58,9 +58,9 @@ def main():
         font-size: 18px;
     }
 
-    /* 主要内容区域：顶部留白（调整此值可改变顶部空白大小） */
+    /* 主要内容区域：顶部留白减小 */
     .block-container {
-        padding-top: 2rem !important;
+        padding-top: 0.8rem !important;
     }
 
     /* 主标题：居中 + 样式 */
@@ -76,13 +76,40 @@ def main():
     .sub-title {
         font-size: 1.25rem;
         color: #444444;
-        margin-bottom: 1.2rem;
+        margin-bottom: 1rem;
         text-align: center;
     }
 
-    /* 侧边栏文字 */
+    /* ===== 侧边栏紧凑化 ===== */
+    /* 去除侧边栏顶部空白 */
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 0.5rem !important;
+    }
+
+    /* 侧边栏行距减小 */
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] .stSubheader,
+    [data-testid="stSidebar"] .stWrite {
+        margin-bottom: 0.2rem !important;
+        line-height: 1.3 !important;
+    }
+
+    /* 侧边栏小标题紧凑 */
+    [data-testid="stSidebar"] .stSubheader {
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.3rem !important;
+        font-size: 18px !important;
+    }
+
+    /* 侧边栏分隔线紧凑 */
+    [data-testid="stSidebar"] hr {
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+
+    /* 侧边栏文字大小（稍小一点更紧凑） */
     [data-testid="stSidebar"] * {
-        font-size: 20px !important;
+        font-size: 16px !important;
     }
 
     /* 标签页 */
@@ -119,8 +146,15 @@ def main():
         font-size: 20px !important;
     }
 
-    /* 表格文字 */
-    [data-testid="stDataFrame"] div {
+    /* 表格列名（表头）样式 */
+    [data-testid="stDataFrame"] thead th {
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        background-color: #f0f2f6 !important;
+    }
+
+    /* 表格内数据 */
+    [data-testid="stDataFrame"] tbody td {
         font-size: 17px !important;
     }
     </style>
@@ -136,24 +170,24 @@ def main():
     )
 
     with st.sidebar:
-        st.subheader("已接入文件")
+        st.subheader("📁 已接入文件")
         st.write("✅ model.keras")
         st.write("✅ scaler_X.pkl")
         st.write("✅ scaler_y.pkl")
         st.write("✅ training_dataset.xlsx")
         st.markdown("---")
 
-        st.subheader("输入顺序")
+        st.subheader("📊 输入顺序")
         for i, feat in enumerate(CONFIG["feature_names"], start=1):
             st.write(f"{i}. {feat}")
         st.markdown("---")
 
-        st.subheader("训练数据规模")
+        st.subheader("📈 训练数据规模")
         st.write(f"样本数：{len(train_df)}")
         st.write(f"特征数：{len(CONFIG['feature_names'])}")
         st.markdown("---")
 
-        st.subheader("说明")
+        st.subheader("💡 说明")
         for note in CONFIG["notes"]:
             st.write(f"- {note}")
 
@@ -177,19 +211,19 @@ def main():
                     format="%.6f",
                 )
 
-        if st.button("开始预测", type="primary", use_container_width=True):
+        if st.button("🔮 开始预测", type="primary", use_container_width=True):
             X = np.array([[values[f] for f in CONFIG["feature_names"]]], dtype=float)
             pred = float(predict_values(model, scaler_x, scaler_y, X)[0])
 
-            st.success(f"{CONFIG['target_label_zh']} = {pred:.4f}")
+            st.success(f"✅ {CONFIG['target_label_zh']} = {pred:.4f} MPa")
 
             warnings = get_range_warnings(values)
             if warnings:
-                st.warning("以下输入超出训练范围，当前结果属于外推，需谨慎解释：")
+                st.warning("⚠️ 以下输入超出训练范围，当前结果属于外推，需谨慎解释：")
                 for w in warnings:
                     st.write(f"- {w}")
             else:
-                st.info("当前输入处于训练数据范围内。")
+                st.info("ℹ️ 当前输入处于训练数据范围内。")
 
             st.dataframe(
                 pd.DataFrame({
@@ -208,7 +242,7 @@ def main():
 
         template_df = train_df[CONFIG["feature_names"]].head(10).copy()
         st.download_button(
-            "下载批量输入模板",
+            "📥 下载批量输入模板",
             data=df_to_xlsx_bytes(template_df),
             file_name="batch_input_template.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -226,7 +260,7 @@ def main():
 
             missing = [c for c in CONFIG["feature_names"] if c not in batch_df.columns]
             if missing:
-                st.error(f"缺少必要列：{missing}")
+                st.error(f"❌ 缺少必要列：{missing}")
             else:
                 X_batch = batch_df[CONFIG["feature_names"]].astype(float).to_numpy()
                 y_pred = predict_values(model, scaler_x, scaler_y, X_batch)
@@ -234,11 +268,11 @@ def main():
                 out_df = batch_df.copy()
                 out_df[CONFIG["target_label_zh"]] = y_pred
 
-                st.success(f"已完成 {len(out_df)} 条数据预测。")
+                st.success(f"✅ 已完成 {len(out_df)} 条数据预测。")
                 st.dataframe(out_df.head(20), use_container_width=True)
 
                 st.download_button(
-                    "下载预测结果",
+                    "📥 下载预测结果",
                     data=df_to_xlsx_bytes(out_df),
                     file_name="fatigue_predictions.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -256,7 +290,7 @@ def main():
 
         st.dataframe(range_df, use_container_width=True, hide_index=True)
 
-        st.markdown("### 使用建议")
+        st.markdown("### 📌 使用建议")
         st.write("1. 尽量保证输入值位于训练数据范围内。")
         st.write("2. 若输入超出训练范围，结果只能作为参考。")
         st.write("3. 批量预测时请保持列名完全一致。")
