@@ -495,7 +495,7 @@ def render_access_prompt(user_email: str = ""):
 
     # 已登录但未授权
     st.warning(f"当前登录账号：{user_email}。你已登录，但尚未获得使用权限。")
-    st.info("如需开通权限，请联系管理员将你的邮箱加入 authorized_users。")
+    st.info("如需开通权限，请联系管理员将您的邮箱加入authorized_users。")
 
     if st.button("退出登录", use_container_width=True, key="logout_unauthorized_button"):
         perform_logout()
@@ -527,7 +527,7 @@ authorized_users = ["user1@example.com", "user2@example.com"]
         """.strip()
     )
 
-    st.success("你以后无论是手动开通，还是想主动赠送某个账户免费权限，都只需要把对方邮箱加入 authorized_users。")
+    st.success("无论是手动开通，还是赠送某个账户免费权限，只需将对方邮箱加入 authorized_users 即可。")
 
 
 # =========================
@@ -674,7 +674,7 @@ def render_predictor_app():
         st.write("1. 尽量保证输入值位于训练数据范围内。")
         st.write("2. 若输入超出训练范围，结果只能作为参考。")
         st.write("3. 批量预测时请保持列名完全一致。")
-        st.write("4. 当前版本直接调用你上传的原始模型文件。")
+        st.write("4. 当前版本直接调用上传的原始模型文件。")
 
 
 # =========================
