@@ -53,7 +53,7 @@
   "scaler_y_file": "scaler_y.pkl",
   "training_dataset_file": "training_dataset.xlsx",
   "notes": [
-    "该版本直接读取你上传的 model.keras 与 scaler 文件。",
+    "该版本直接读取上传的 model.keras 与 scaler 文件。",
     "输入顺序固定为 E、σb、R、σ-1。",
     "支持单点预测与批量预测。",
     "若输入超出训练范围，页面会给出外推提示。"
