@@ -606,7 +606,7 @@ def render_predictor_app():
 
             result_df = pd.DataFrame({
                 "Feature": CONFIG["feature_names"],
-                "Chinese": [CONFIG["feature_labels_zh"][f] for f in CONFIG["feature_names"]],
+                "Meaning": [CONFIG["feature_labels_zh"][f] for f in CONFIG["feature_names"]],
                 "Value": [values[f] for f in CONFIG["feature_names"]],
             })
             st.table(result_df)
